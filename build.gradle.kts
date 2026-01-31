@@ -2,6 +2,8 @@ plugins {
     id("java")
 }
 
+version = "1.0.0"
+
 repositories {
     mavenCentral()
 }
@@ -38,6 +40,12 @@ tasks.withType<JavaCompile>().configureEach {
     targetCompatibility = "17"
     options.encoding = "UTF-8"
     options.compilerArgs.add("-Xlint:deprecation")
+}
+
+tasks.register("printVersion") {
+    doLast {
+        println(project.version)
+    }
 }
 
 tasks.named<Jar>("jar") {
