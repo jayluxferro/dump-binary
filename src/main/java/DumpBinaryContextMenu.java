@@ -102,7 +102,7 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 dumpSelection.addActionListener(e -> dumpBody(selectedBytes, "application/octet-stream", selName, e, false));
                 dumpMenu.add(dumpSelection);
                 JMenuItem extractSelStrings = new JMenuItem("Extract strings from selection");
-                extractSelStrings.addActionListener(e -> showExtractStrings(selectedBytes, getParentWindow(event)));
+                extractSelStrings.addActionListener(e -> showExtractStrings(selectedBytes, getParentWindow(event), false));
                 dumpMenu.add(extractSelStrings);
             }
         }
@@ -171,7 +171,7 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 dumpSelection.addActionListener(e -> dumpBody(selectedBytes, "application/octet-stream", selName, e, false));
                 dumpMenu.add(dumpSelection);
                 JMenuItem extractSelStrings = new JMenuItem("Extract strings from selection");
-                extractSelStrings.addActionListener(e -> showExtractStrings(selectedBytes, getParentWindow(event)));
+                extractSelStrings.addActionListener(e -> showExtractStrings(selectedBytes, getParentWindow(event), false));
                 dumpMenu.add(extractSelStrings);
             }
         }
@@ -205,6 +205,7 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
 
     private void addWebSocketDumpItems(JMenu menu, WebSocketMessage message, WebSocketContextMenuEvent event, WebSocketEditorEvent editor) {
         DumpBinaryUtils.setCustomMagicBytes(settings.getCustomMagicBytes());
+        DumpBinaryUtils.setMinStringLength(settings.getMinStringLength());
         byte[] rawBytes = message.payload().getBytes();
         String ext = DumpBinaryUtils.detectExtensionFromMagic(rawBytes);
         String suggestedName = buildWebSocketFilename(message, ext);
@@ -229,19 +230,28 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         copyHex.addActionListener(e -> copyToClipboard(finalBytesToDump, "hex"));
         JMenuItem copyMd5 = new JMenuItem("Copy MD5");
         copyMd5.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.md5Hex(finalBytesToDump), "MD5"));
+        JMenuItem copySha1 = new JMenuItem("Copy SHA-1");
+        copySha1.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha1Hex(finalBytesToDump), "SHA-1"));
         JMenuItem copySha256 = new JMenuItem("Copy SHA-256");
         copySha256.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha256Hex(finalBytesToDump), "SHA-256"));
+        JMenuItem copySha512 = new JMenuItem("Copy SHA-512");
+        copySha512.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha512Hex(finalBytesToDump), "SHA-512"));
         copyMenu.add(copyBase64);
         copyMenu.add(copyHex);
         copyMenu.add(copyMd5);
+        copyMenu.add(copySha1);
         copyMenu.add(copySha256);
+        copyMenu.add(copySha512);
         montoyaApi.userInterface().applyThemeToComponent(copyMenu);
         menu.add(copyMenu);
 
         menu.addSeparator();
         JMenuItem extractStrings = new JMenuItem("Extract strings");
-        extractStrings.addActionListener(e -> showExtractStrings(finalBytesToDump, getParentWindow(event)));
+        extractStrings.addActionListener(e -> showExtractStrings(finalBytesToDump, parent, false));
         menu.add(extractStrings);
+        JMenuItem extractStringsUtf8 = new JMenuItem("Extract strings (UTF-8)");
+        extractStringsUtf8.addActionListener(e -> showExtractStrings(finalBytesToDump, parent, true));
+        menu.add(extractStringsUtf8);
 
         JMenuItem sendToComparer = new JMenuItem("Send to Comparer");
         sendToComparer.addActionListener(e -> montoyaApi.comparer().sendToComparer(ByteArray.byteArray(finalBytesToDump)));
@@ -317,7 +327,8 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             dumpCbor.addActionListener(e -> dumpBody(cborJson, "application/json", cbName, parent, false));
             menu.add(dumpCbor);
         }
-        byte[] protobufJson = tryDecodeProtobuf(bytesToDump);
+        String wsUrl = message.upgradeRequest() != null ? message.upgradeRequest().url() : null;
+        byte[] protobufJson = tryDecodeProtobuf(bytesToDump, wsUrl);
         if (protobufJson != null) {
             String pbName = suggestedName.replace("." + ext, "-protobuf.json");
             JMenuItem dumpProtobuf = new JMenuItem("Dump protobuf as JSON");
@@ -405,6 +416,7 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
     private void addDumpItems(JMenu menu, HttpRequestResponse pair, ByteArray body, String contentTypeHeader,
                              String label, ContextMenuEvent event, MessageEditorHttpRequestResponse editor) {
         DumpBinaryUtils.setCustomMagicBytes(settings.getCustomMagicBytes());
+        DumpBinaryUtils.setMinStringLength(settings.getMinStringLength());
         String contentType = DumpBinaryUtils.getContentType(contentTypeHeader);
         String ext = DumpBinaryUtils.extensionForMime(contentType);
         byte[] rawBytes = body.getBytes();
@@ -453,19 +465,28 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         copyHex.addActionListener(e -> copyToClipboard(finalBytesToDump, "hex"));
         JMenuItem copyMd5 = new JMenuItem("Copy MD5");
         copyMd5.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.md5Hex(finalBytesToDump), "MD5"));
+        JMenuItem copySha1 = new JMenuItem("Copy SHA-1");
+        copySha1.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha1Hex(finalBytesToDump), "SHA-1"));
         JMenuItem copySha256 = new JMenuItem("Copy SHA-256");
         copySha256.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha256Hex(finalBytesToDump), "SHA-256"));
+        JMenuItem copySha512 = new JMenuItem("Copy SHA-512");
+        copySha512.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha512Hex(finalBytesToDump), "SHA-512"));
         copyMenu.add(copyBase64);
         copyMenu.add(copyHex);
         copyMenu.add(copyMd5);
+        copyMenu.add(copySha1);
         copyMenu.add(copySha256);
+        copyMenu.add(copySha512);
         montoyaApi.userInterface().applyThemeToComponent(copyMenu);
         menu.add(copyMenu);
 
         menu.addSeparator();
         JMenuItem extractStrings = new JMenuItem("Extract strings");
-        extractStrings.addActionListener(e -> showExtractStrings(finalBytesToDump, getParentWindow(event)));
+        extractStrings.addActionListener(e -> showExtractStrings(finalBytesToDump, getParentWindow(event), false));
         menu.add(extractStrings);
+        JMenuItem extractStringsUtf8 = new JMenuItem("Extract strings (UTF-8)");
+        extractStringsUtf8.addActionListener(e -> showExtractStrings(finalBytesToDump, getParentWindow(event), true));
+        menu.add(extractStringsUtf8);
 
         JMenuItem sendToComparer = new JMenuItem("Send to Comparer");
         sendToComparer.addActionListener(e -> montoyaApi.comparer().sendToComparer(ByteArray.byteArray(finalBytesToDump)));
@@ -550,7 +571,8 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             menu.add(dumpCbor);
         }
 
-        byte[] protobufJson = tryDecodeProtobuf(bytesToDump);
+        String requestUrl = pair.request().url();
+        byte[] protobufJson = tryDecodeProtobuf(bytesToDump, requestUrl);
         if (protobufJson != null) {
             String pbName = suggestedName.replace("." + ext, "-protobuf.json");
             JMenuItem dumpProtobuf = new JMenuItem("Dump protobuf as JSON");
@@ -858,7 +880,7 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
     }
 
     private byte[] decompressZstd(byte[] compressed) throws IOException {
-        long size = Zstd.decompressedSize(compressed);
+        long size = Zstd.getFrameContentSize(compressed);
         if (size <= 0 || size > 512 * 1024 * 1024) size = 4 * compressed.length;
         byte[] out = new byte[(int) size];
         long n = Zstd.decompress(out, compressed);
@@ -915,16 +937,17 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         return null;
     }
 
-    private byte[] tryDecodeProtobuf(byte[] bytes) {
+    private byte[] tryDecodeProtobuf(byte[] bytes, String url) {
         if (bytes == null || bytes.length == 0) return null;
         String protoPath = settings.getProtoDescriptorPath();
         if (protoPath == null) return null;
         try {
             java.nio.file.Path path = java.nio.file.Paths.get(protoPath);
-            List<com.google.protobuf.Descriptors.Descriptor> descriptors = DumpBinaryProtobuf.loadDescriptorSet(path);
+            List<com.google.protobuf.Descriptors.Descriptor> descriptors = DumpBinaryProtobuf.loadFromPath(path);
             if (descriptors.isEmpty()) return null;
+            String messageType = resolveMessageTypeForUrl(url);
             com.google.protobuf.Descriptors.Descriptor descriptor = DumpBinaryProtobuf.findMessageDescriptor(
-                    descriptors, settings.getProtoDefaultMessageType());
+                    descriptors, messageType);
             if (descriptor == null) {
                 for (com.google.protobuf.Descriptors.Descriptor d : descriptors) {
                     String json = DumpBinaryProtobuf.decodeToJson(bytes, d);
@@ -942,10 +965,33 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         }
     }
 
-    private void showExtractStrings(byte[] bytes, Component parent) {
-        List<String> strings = DumpBinaryUtils.extractStrings(bytes);
+    private String resolveMessageTypeForUrl(String url) {
+        String mapping = settings.getProtoEndpointMapping();
+        if (mapping == null || url == null || url.isBlank()) return settings.getProtoDefaultMessageType();
+        for (String line : mapping.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            int colon = line.indexOf(':');
+            if (colon > 0) {
+                String pattern = line.substring(0, colon).trim();
+                String messageType = line.substring(colon + 1).trim();
+                if (!pattern.isEmpty() && !messageType.isEmpty()) {
+                    try {
+                        if (url.matches(pattern)) return messageType;
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+        return settings.getProtoDefaultMessageType();
+    }
+
+    private void showExtractStrings(byte[] bytes, Component parent, boolean utf8) {
+        int minLen = settings.getMinStringLength();
+        DumpBinaryUtils.setMinStringLength(minLen);
+        List<String> strings = DumpBinaryUtils.extractStrings(bytes, minLen, utf8);
         StringBuilder sb = new StringBuilder();
-        sb.append("Extracted ").append(strings.size()).append(" strings (min length 4):\n\n");
+        sb.append("Extracted ").append(strings.size()).append(" strings (min length ").append(minLen)
+                .append(utf8 ? ", UTF-8" : ", ASCII").append("):\n\n");
         for (String s : strings) {
             sb.append(s).append("\n");
         }

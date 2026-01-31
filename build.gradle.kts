@@ -17,6 +17,7 @@ dependencies {
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.18.2")
     implementation("com.google.protobuf:protobuf-java:3.25.5")
     implementation("com.google.protobuf:protobuf-java-util:3.25.5")
+    implementation("com.github.os72:protoc-jar:3.11.4")
     runtimeOnly("com.aayushatharva.brotli4j:native-osx-aarch64:1.20.0")
     runtimeOnly("com.aayushatharva.brotli4j:native-osx-x86_64:1.20.0")
     runtimeOnly("com.aayushatharva.brotli4j:native-linux-x86_64:1.20.0")
@@ -24,6 +25,7 @@ dependencies {
     runtimeOnly("com.aayushatharva.brotli4j:native-windows-x86_64:1.20.0")
     runtimeOnly("com.aayushatharva.brotli4j:native-windows-aarch64:1.20.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("net.portswigger.burp.extensions:montoya-api:2025.12")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -35,6 +37,7 @@ tasks.withType<JavaCompile>().configureEach {
     sourceCompatibility = "17"
     targetCompatibility = "17"
     options.encoding = "UTF-8"
+    options.compilerArgs.add("-Xlint:deprecation")
 }
 
 tasks.named<Jar>("jar") {

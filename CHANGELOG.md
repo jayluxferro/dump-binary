@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Batch dump for multiple selections
 - Multipart extraction
 - Settings panel: default save dir, open after save, overwrite confirmation, success toast
-- Keyboard shortcut: Ctrl+Shift+D (HTTP message editor, Proxy history)
+- Keyboard shortcut: Ctrl+Shift+D (HTTP message editor, Proxy history, Site map, Intruder, Organizer)
 - Copy to clipboard: base64, hex
 - Filename collision handling (suffix -2, -3, etc.)
 - Extended MIME map (woff, woff2, js, css, html, wasm)
@@ -43,3 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multiple Content-Encoding** — Handle chained encodings (e.g. `gzip, br`) by applying decompression in reverse order
 - **Auto-detect encoding** — "Dump auto-decoded" menu item tries gzip, deflate, br, zstd, LZ4, Snappy and dumps first successful result
 - **Protobuf support** — Decode protobuf payloads to JSON when a pre-compiled descriptor file (`.desc`) is configured; settings for descriptor path and default message type; supports nested message types
+- **Protobuf .proto loading** — Load `.proto` files directly; compiles at runtime via protoc-jar
+- **Protobuf endpoint mapping** — Map URL patterns to message types (e.g. `/api/.*:MyMessage` per line in Settings)
+- **SHA-1, SHA-512** — Copy SHA-1 and SHA-512 hashes to clipboard
+- **UTF-8 string extraction** — Extract strings (UTF-8) option for non-ASCII text
+- **Configurable string length** — Min string length for extraction (1–64) in Settings
+- **Extended hotkey contexts** — Ctrl+Shift+D now works in Site map, Intruder results, Organizer (Montoya has no WebSocket hotkey context)
+- **Deprecation fix** — Use Zstd.getFrameContentSize() instead of deprecated decompressedSize()
+- **Integration tests** — ExtensionIntegrationTest for structure and decode pipeline

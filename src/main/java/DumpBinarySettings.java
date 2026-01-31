@@ -16,6 +16,8 @@ public class DumpBinarySettings {
     public static final String CUSTOM_MAGIC_BYTES = "customMagicBytes";
     public static final String PROTO_DESCRIPTOR_PATH = "protoDescriptorPath";
     public static final String PROTO_DEFAULT_MESSAGE_TYPE = "protoDefaultMessageType";
+    public static final String PROTO_ENDPOINT_MAPPING = "protoEndpointMapping";
+    public static final String MIN_STRING_LENGTH = "minStringLength";
 
     private final SettingsPanelWithData panel;
 
@@ -32,8 +34,10 @@ public class DumpBinarySettings {
                         booleanSetting("Confirm before overwriting existing file", CONFIRM_OVERWRITE, true),
                         booleanSetting("Open saved file in default application", OPEN_AFTER_SAVE, false),
                         stringSetting("Custom magic bytes (hex:ext per line, e.g. 89 50 4E 47:png)", CUSTOM_MAGIC_BYTES, ""),
-                        stringSetting("Protobuf descriptor file (.desc, from protoc --descriptor_set_out)", PROTO_DESCRIPTOR_PATH, ""),
-                        stringSetting("Protobuf default message type (e.g. MyMessage or package.MyMessage, empty=first)", PROTO_DEFAULT_MESSAGE_TYPE, "")
+                        stringSetting("Protobuf descriptor file (.desc or .proto)", PROTO_DESCRIPTOR_PATH, ""),
+                        stringSetting("Protobuf default message type (e.g. MyMessage or package.MyMessage, empty=first)", PROTO_DEFAULT_MESSAGE_TYPE, ""),
+                        stringSetting("Protobuf endpoint mapping (pattern:messageType per line, e.g. /api/.*:MyMessage)", PROTO_ENDPOINT_MAPPING, ""),
+                        stringSetting("Min string length for extraction (default 4)", MIN_STRING_LENGTH, "4")
                 )
                 .build();
     }
@@ -76,5 +80,21 @@ public class DumpBinarySettings {
     public String getProtoDefaultMessageType() {
         String s = panel.getString(PROTO_DEFAULT_MESSAGE_TYPE);
         return (s != null && !s.isBlank()) ? s.trim() : null;
+    }
+
+    public String getProtoEndpointMapping() {
+        String s = panel.getString(PROTO_ENDPOINT_MAPPING);
+        return (s != null && !s.isBlank()) ? s.trim() : null;
+    }
+
+    public int getMinStringLength() {
+        String s = panel.getString(MIN_STRING_LENGTH);
+        if (s == null || s.isBlank()) return 4;
+        try {
+            int v = Integer.parseInt(s.trim());
+            return Math.max(1, Math.min(64, v));
+        } catch (NumberFormatException e) {
+            return 4;
+        }
     }
 }

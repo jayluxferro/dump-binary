@@ -184,6 +184,32 @@ public final class DumpBinaryUtils {
         }
     }
 
+    public static String sha1Hex(byte[] bytes) {
+        if (bytes == null) return null;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] digest = md.digest(bytes);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xFF));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
+    public static String sha512Hex(byte[] bytes) {
+        if (bytes == null) return null;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-512");
+            byte[] digest = md.digest(bytes);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xFF));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
     public static String getContentType(String contentTypeHeader) {
         if (contentTypeHeader == null || contentTypeHeader.isBlank()) {
             return "application/octet-stream";
@@ -257,40 +283,127 @@ public final class DumpBinaryUtils {
         return null;
     }
 
-    /** Minimum length for extracted strings (filters noise). */
-    private static final int MIN_STRING_LENGTH = 4;
+    /** Default minimum length for extracted strings. */
+    private static final int DEFAULT_MIN_STRING_LENGTH = 4;
+    private static int minStringLength = DEFAULT_MIN_STRING_LENGTH;
 
     /** Printable ASCII range (space to tilde). */
     private static final int PRINTABLE_MIN = 0x20;
     private static final int PRINTABLE_MAX = 0x7E;
 
+    public static void setMinStringLength(int len) {
+        minStringLength = Math.max(1, Math.min(64, len));
+    }
+
     /**
-     * Extract printable strings from binary data.
-     * Returns contiguous sequences of printable ASCII (space to tilde) of at least
-     * {@value #MIN_STRING_LENGTH} characters. Useful for finding URLs, paths, tokens.
+     * Extract printable ASCII strings from binary data.
      *
      * @param bytes raw binary data
      * @return list of extracted strings, never null
      */
     public static List<String> extractStrings(byte[] bytes) {
+        return extractStrings(bytes, minStringLength, false);
+    }
+
+    /**
+     * Extract printable strings from binary data.
+     *
+     * @param bytes raw binary data
+     * @param minLen minimum string length
+     * @param utf8 if true, accept UTF-8 multi-byte sequences; if false, ASCII only
+     * @return list of extracted strings, never null
+     */
+    public static List<String> extractStrings(byte[] bytes, int minLen, boolean utf8) {
         List<String> result = new ArrayList<>();
         if (bytes == null || bytes.length == 0) return result;
+        int effectiveMin = Math.max(1, Math.min(64, minLen));
 
+        if (utf8) {
+            extractStringsUtf8(bytes, effectiveMin, result);
+        } else {
+            StringBuilder current = new StringBuilder();
+            for (byte b : bytes) {
+                int v = b & 0xFF;
+                if (v >= PRINTABLE_MIN && v <= PRINTABLE_MAX) {
+                    current.append((char) v);
+                } else {
+                    if (current.length() >= effectiveMin) {
+                        result.add(current.toString());
+                    }
+                    current.setLength(0);
+                }
+            }
+            if (current.length() >= effectiveMin) {
+                result.add(current.toString());
+            }
+        }
+        return result;
+    }
+
+    private static void extractStringsUtf8(byte[] bytes, int minLen, List<String> result) {
+        int i = 0;
         StringBuilder current = new StringBuilder();
-        for (byte b : bytes) {
-            int v = b & 0xFF;
-            if (v >= PRINTABLE_MIN && v <= PRINTABLE_MAX) {
-                current.append((char) v);
+        while (i < bytes.length) {
+            int cp = readUtf8CodePoint(bytes, i);
+            if (cp >= 0) {
+                int len = utf8Length(bytes[i] & 0xFF);
+                if (isPrintableUtf8(cp)) {
+                    current.appendCodePoint(cp);
+                    i += len;
+                } else {
+                    if (current.length() >= minLen) {
+                        result.add(current.toString());
+                    }
+                    current.setLength(0);
+                    i += len;
+                }
             } else {
-                if (current.length() >= MIN_STRING_LENGTH) {
+                if (current.length() >= minLen) {
                     result.add(current.toString());
                 }
                 current.setLength(0);
+                i++;
             }
         }
-        if (current.length() >= MIN_STRING_LENGTH) {
+        if (current.length() >= minLen) {
             result.add(current.toString());
         }
-        return result;
+    }
+
+    private static int utf8Length(int firstByte) {
+        if ((firstByte & 0x80) == 0) return 1;
+        if ((firstByte & 0xE0) == 0xC0) return 2;
+        if ((firstByte & 0xF0) == 0xE0) return 3;
+        if ((firstByte & 0xF8) == 0xF0) return 4;
+        return 1;
+    }
+
+    private static int readUtf8CodePoint(byte[] bytes, int offset) {
+        if (offset >= bytes.length) return -1;
+        int b0 = bytes[offset] & 0xFF;
+        if ((b0 & 0x80) == 0) return b0;
+        if ((b0 & 0xE0) == 0xC0 && offset + 1 < bytes.length) {
+            int b1 = bytes[offset + 1] & 0xFF;
+            if ((b1 & 0xC0) == 0x80) return ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+        }
+        if ((b0 & 0xF0) == 0xE0 && offset + 2 < bytes.length) {
+            int b1 = bytes[offset + 1] & 0xFF, b2 = bytes[offset + 2] & 0xFF;
+            if ((b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80)
+                return ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+        }
+        if ((b0 & 0xF8) == 0xF0 && offset + 3 < bytes.length) {
+            int b1 = bytes[offset + 1] & 0xFF, b2 = bytes[offset + 2] & 0xFF, b3 = bytes[offset + 3] & 0xFF;
+            if ((b1 & 0xC0) == 0x80 && (b2 & 0xC0) == 0x80 && (b3 & 0xC0) == 0x80)
+                return ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+        }
+        return -1;
+    }
+
+    private static boolean isPrintableUtf8(int codePoint) {
+        if (codePoint < 0) return false;
+        if (codePoint < 0x20) return false;
+        if (codePoint >= 0x7F && codePoint < 0xA0) return false;
+        if (codePoint >= 0xD800 && codePoint < 0xE000) return false;
+        return Character.isDefined(codePoint);
     }
 }
