@@ -1,0 +1,2 @@
+rootProject.name = "dump-binary"
+
