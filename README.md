@@ -135,29 +135,6 @@ src/main/java/
 └── DumpBinaryHotKeyHandler.java # Ctrl+Shift+D handler
 ```
 
-## Roadmap
-
-Planned features, to be implemented gradually:
-
-**Phase 1 (low effort)** ✓
-- [x] **Checksum/hash** — Copy MD5, SHA-256 to clipboard (integrity, dedup)
-- [x] **URL-safe Base64 decode** — Decode bodies with `-` and `_` instead of `+` and `/`
-- [x] **Hex string decode** — Decode bodies that are hex-encoded strings
-- [x] **Dump to temp** — One-click dump to temp dir without file chooser
-
-**Phase 2 (low–medium effort)** ✓
-- [x] **String extraction** — Extract printable strings from binary (URLs, paths, tokens)
-- [x] **Send to Comparer** — Send dumped content to Burp's Comparer
-- [x] **Send to Decoder** — Send to Burp's Decoder for further analysis
-
-**Phase 3 (medium effort)** ✓
-- [x] **LZ4 / Snappy** — Decompression for APIs using these formats
-- [x] **Multiple Content-Encoding** — Handle chained encodings (e.g. `gzip, br`)
-- [x] **Auto-detect encoding** — Try multiple decodings and pick valid output
-
-**Phase 4 (high effort)** ✓
-- [x] **Protobuf support** — Decode protobuf payloads to JSON; supports `.desc` or `.proto` files (protoc-jar at runtime).
-
 ## Resources
 
 - [Montoya API JavaDoc](https://portswigger.github.io/burp-extensions-montoya-api/javadoc/burp/api/montoya/MontoyaApi.html)
