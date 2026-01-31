@@ -14,7 +14,7 @@ public class Extension implements BurpExtension {
         } catch (Throwable t) {
             montoyaApi.logging().logToError("Dump Binary: Brotli native library failed to load - br decoding disabled: " + t.getMessage());
         }
-        montoyaApi.extension().setName("Dump Binary v" + DumpBinaryVersion.VERSION);
+        montoyaApi.extension().setName("Dump Binary");
 
         DumpBinarySettings settings = new DumpBinarySettings();
         montoyaApi.userInterface().registerSettingsPanel(settings.getPanel());

@@ -128,8 +128,10 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         }
 
         if (dumpMenu.getItemCount() > 0) {
-            montoyaApi.userInterface().applyThemeToComponent(dumpMenu);
-            items.add(dumpMenu);
+            for (Component c : dumpMenu.getMenuComponents()) {
+                montoyaApi.userInterface().applyThemeToComponent(c);
+                items.add(c);
+            }
         }
         return items;
     }
@@ -197,8 +199,10 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         }
 
         if (dumpMenu.getItemCount() > 0) {
-            montoyaApi.userInterface().applyThemeToComponent(dumpMenu);
-            items.add(dumpMenu);
+            for (Component c : dumpMenu.getMenuComponents()) {
+                montoyaApi.userInterface().applyThemeToComponent(c);
+                items.add(c);
+            }
         }
         return items;
     }
