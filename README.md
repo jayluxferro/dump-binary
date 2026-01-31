@@ -11,17 +11,23 @@ A Burp Suite extension that lets you dump the raw binary body of HTTP requests o
 - **Dump selection** — When text is selected in the message editor, dump only the selected bytes.
 - **Smart filenames** — Derived from host, path, and Content-Disposition; falls back to magic-byte detection.
 - **Content-Type aware** — Suggests file extensions from Content-Type; falls back to magic-byte detection for unknown types.
-- **Content decoding** — Automatically decompresses gzip-, deflate-, brotli-, and zstd-encoded responses before saving.
-- **Copy to clipboard** — Copy body as base64 or hex.
-- **Base64 decode** — When body decodes as base64, option to dump the decoded binary.
+- **Content decoding** — Automatically decompresses gzip-, deflate-, brotli-, zstd-, LZ4-, and Snappy-encoded responses before saving. Supports multiple encodings (e.g. `gzip, br`).
+- **Copy to clipboard** — Copy body as base64, hex, MD5, or SHA-256.
+- **Base64 decode** — When body decodes as base64 (standard or URL-safe), option to dump the decoded binary.
+- **Hex string decode** — When body is hex-encoded, option to dump the decoded binary.
 - **Chained decode** — base64→gzip or gzip→base64 for double-encoded bodies.
 - **JSON/XML pretty-print** — Format JSON and XML before saving.
 - **MessagePack/CBOR** — Dump as JSON when binary formats detected.
 - **Binary diff** — Compare two selected items (hex view with diff markers) for HTTP or WebSocket.
+- **Extract strings** — Extract printable strings from binary (URLs, paths, tokens) with copy-to-clipboard.
+- **Send to Comparer** — Send body or selection to Burp's Comparer; when 2 items selected, send both.
+- **Send to Decoder** — Send body or selection to Burp's Decoder for further analysis.
 - **Custom magic bytes** — User-defined hex:ext patterns in Settings.
+- **Dump to temp** — One-click dump to temp dir (`java.io.tmpdir/dump-binary/`) without file chooser.
 - **Batch dump** — Dump all selected items at once when multiple rows are selected (HTTP or WebSocket).
 - **Multipart extraction** — Extract individual parts from multipart bodies to separate files.
-- **Settings panel** — Default save directory, auto-save, open after save, overwrite confirmation, success notifications.
+- **Protobuf** — Decode protobuf payloads to JSON when a descriptor file (`.desc`) is configured; supports nested message types.
+- **Settings panel** — Default save directory, auto-save, open after save, overwrite confirmation, success notifications, protobuf descriptor path.
 - **Background file I/O** — Large saves run off the EDT to keep Burp responsive.
 - **Extended MIME map** — Supports fonts (woff, woff2), JavaScript, CSS, HTML, WASM, and more.
 
@@ -58,7 +64,7 @@ To reload after changes: hold **Ctrl** (Windows/Linux) or **⌘** (macOS) and cl
    - **In the message editor** — Click inside the request or response panel (Repeater, HTTP tab, etc.).
    - **In the WebSocket editor** — Click inside a WebSocket message in the WebSockets tab.
    - **In a table** — Select a row in Proxy history, Site map, or WebSocket message table, then right-click.
-2. Choose **Dump Binary** → **Dump request body**, **Dump response body**, **Dump full message**, **Copy to clipboard** (base64/hex), **Dump pretty-printed** (JSON/XML), **Dump chained decode**, **Dump MessagePack/CBOR as JSON**, or **Extract multipart parts** (when applicable).
+2. Choose **Dump Binary** → **Dump request body**, **Dump response body**, **Dump full message**, **Copy to clipboard** (base64/hex), **Extract strings**, **Send to Comparer**, **Send to Decoder**, **Dump pretty-printed** (JSON/XML), **Dump chained decode**, **Dump auto-decoded**, **Dump MessagePack/CBOR/protobuf as JSON**, or **Extract multipart parts** (when applicable).
 3. For a selection: select text in the message editor, then right-click → **Dump Binary** → **Dump selection**.
 4. For binary diff: select exactly two rows (HTTP or WebSocket), then right-click → **Dump Binary** → **Binary diff (compare 2 selected)**.
 5. For WebSocket: right-click a WebSocket message → **Dump Binary** → **Dump WebSocket payload**, **Dump selection**, **Copy to clipboard**, chained decode, MessagePack/CBOR as JSON, etc.
@@ -76,6 +82,8 @@ Go to **Settings > Dump Binary** to configure:
 - **Show success notification** — Popup after a successful save.
 - **Confirm before overwriting** — Ask before overwriting an existing file.
 - **Custom magic bytes** — Hex:ext patterns (one per line), e.g. `89 50 4E 47:png` for custom file type detection.
+- **Protobuf descriptor file** — Path to pre-compiled `.desc` file (from `protoc --descriptor_set_out`).
+- **Protobuf default message type** — Message type name (e.g. `MyMessage` or `package.MyMessage`); empty = try first.
 
 ## Content Encoding
 
@@ -87,6 +95,8 @@ The extension automatically decompresses responses with these `Content-Encoding`
 | deflate | Deflate (zlib or raw) compression |
 | br | Brotli compression |
 | zstd | Zstandard compression |
+| lz4 | LZ4 frame compression |
+| snappy, x-snappy | Snappy compression |
 
 ## Supported Content Types
 
@@ -100,17 +110,51 @@ The extension maps MIME types to file extensions and uses magic-byte detection w
 | application/wasm | .wasm |
 | application/octet-stream, unknown | Magic-byte detection or .bin |
 
+## Protobuf Setup
+
+1. Compile your `.proto` to a descriptor set:
+   ```bash
+   protoc --descriptor_set_out=messages.desc -I. your.proto
+   ```
+2. In Burp: **Settings > Dump Binary** → set **Protobuf descriptor file** to the path of `messages.desc`.
+3. Optionally set **Protobuf default message type** (e.g. `MyMessage` or `package.MyMessage`); leave empty to try each message type.
+4. Right-click a protobuf body → **Dump Binary** → **Dump protobuf as JSON**.
+
 ## Project Structure
 
 ```
 src/main/java/
 ├── Extension.java              # Entry point, registers settings, context menu, hotkey
 ├── DumpBinaryContextMenu.java # Context menu, dump logic, content decoding, multipart
-├── DumpBinarySettings.java    # Settings panel (default dir, open after save, etc.)
+├── DumpBinarySettings.java    # Settings panel (default dir, open after save, protobuf, etc.)
 ├── DumpBinaryUtils.java       # MIME mapping, magic-byte detection, Content-Disposition
 ├── DumpBinaryVersion.java     # Version constant
+├── DumpBinaryProtobuf.java    # Protobuf descriptor loading and JSON decode
 └── DumpBinaryHotKeyHandler.java # Ctrl+Shift+D handler
 ```
+
+## Roadmap
+
+Planned features, to be implemented gradually:
+
+**Phase 1 (low effort)** ✓
+- [x] **Checksum/hash** — Copy MD5, SHA-256 to clipboard (integrity, dedup)
+- [x] **URL-safe Base64 decode** — Decode bodies with `-` and `_` instead of `+` and `/`
+- [x] **Hex string decode** — Decode bodies that are hex-encoded strings
+- [x] **Dump to temp** — One-click dump to temp dir without file chooser
+
+**Phase 2 (low–medium effort)** ✓
+- [x] **String extraction** — Extract printable strings from binary (URLs, paths, tokens)
+- [x] **Send to Comparer** — Send dumped content to Burp's Comparer
+- [x] **Send to Decoder** — Send to Burp's Decoder for further analysis
+
+**Phase 3 (medium effort)** ✓
+- [x] **LZ4 / Snappy** — Decompression for APIs using these formats
+- [x] **Multiple Content-Encoding** — Handle chained encodings (e.g. `gzip, br`)
+- [x] **Auto-detect encoding** — Try multiple decodings and pick valid output
+
+**Phase 4 (high effort)** ✓
+- [x] **Protobuf support** — Decode protobuf payloads to JSON when a pre-compiled descriptor file (`.desc`) is configured in Settings.
 
 ## Resources
 

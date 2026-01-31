@@ -1,3 +1,5 @@
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -100,6 +102,8 @@ public final class DumpBinaryUtils {
         if (startsWith(bytes, PDF_SIG)) return "pdf";
         if (startsWith(bytes, ZIP_SIG)) return "zip";
         if (startsWith(bytes, GZIP_SIG)) return "gz";
+        if (bytes.length >= 4 && (bytes[0] & 0xFF) == 0x04 && (bytes[1] & 0xFF) == 0x22
+                && (bytes[2] & 0xFF) == 0x4D && (bytes[3] & 0xFF) == 0x18) return "lz4";
         return "bin";
     }
 
@@ -124,6 +128,58 @@ public final class DumpBinaryUtils {
             if (!s.matches("^[A-Za-z0-9+/=\\s\\r\\n]+$")) return null;
             return Base64.getDecoder().decode(s.replaceAll("\\s", ""));
         } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    public static byte[] tryDecodeBase64UrlSafe(byte[] raw) {
+        if (raw == null || raw.length < 4) return null;
+        try {
+            String s = new String(raw, java.nio.charset.StandardCharsets.US_ASCII);
+            if (!s.matches("^[A-Za-z0-9_-]+$")) return null;
+            return Base64.getUrlDecoder().decode(s);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    public static byte[] tryDecodeHex(byte[] raw) {
+        if (raw == null || raw.length < 2) return null;
+        try {
+            String s = new String(raw, java.nio.charset.StandardCharsets.US_ASCII).replaceAll("\\s", "");
+            if (!s.matches("^[0-9a-fA-F]+$") || s.length() % 2 != 0) return null;
+            byte[] out = new byte[s.length() / 2];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = (byte) Integer.parseInt(s.substring(i * 2, i * 2 + 2), 16);
+            }
+            return out;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static String md5Hex(byte[] bytes) {
+        if (bytes == null) return null;
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(bytes);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xFF));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
+    public static String sha256Hex(byte[] bytes) {
+        if (bytes == null) return null;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(bytes);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b & 0xFF));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
             return null;
         }
     }
@@ -199,5 +255,42 @@ public final class DumpBinaryUtils {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    /** Minimum length for extracted strings (filters noise). */
+    private static final int MIN_STRING_LENGTH = 4;
+
+    /** Printable ASCII range (space to tilde). */
+    private static final int PRINTABLE_MIN = 0x20;
+    private static final int PRINTABLE_MAX = 0x7E;
+
+    /**
+     * Extract printable strings from binary data.
+     * Returns contiguous sequences of printable ASCII (space to tilde) of at least
+     * {@value #MIN_STRING_LENGTH} characters. Useful for finding URLs, paths, tokens.
+     *
+     * @param bytes raw binary data
+     * @return list of extracted strings, never null
+     */
+    public static List<String> extractStrings(byte[] bytes) {
+        List<String> result = new ArrayList<>();
+        if (bytes == null || bytes.length == 0) return result;
+
+        StringBuilder current = new StringBuilder();
+        for (byte b : bytes) {
+            int v = b & 0xFF;
+            if (v >= PRINTABLE_MIN && v <= PRINTABLE_MAX) {
+                current.append((char) v);
+            } else {
+                if (current.length() >= MIN_STRING_LENGTH) {
+                    result.add(current.toString());
+                }
+                current.setLength(0);
+            }
+        }
+        if (current.length() >= MIN_STRING_LENGTH) {
+            result.add(current.toString());
+        }
+        return result;
     }
 }

@@ -28,6 +28,8 @@ import java.util.zip.InflaterInputStream;
 import com.aayushatharva.brotli4j.decoder.Decoder;
 import com.aayushatharva.brotli4j.decoder.DirectDecompress;
 import com.github.luben.zstd.Zstd;
+import net.jpountz.lz4.LZ4FrameInputStream;
+import org.xerial.snappy.Snappy;
 
 public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
 
@@ -99,6 +101,9 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 JMenuItem dumpSelection = new JMenuItem("Dump selection (" + selectedBytes.length + " bytes)");
                 dumpSelection.addActionListener(e -> dumpBody(selectedBytes, "application/octet-stream", selName, e, false));
                 dumpMenu.add(dumpSelection);
+                JMenuItem extractSelStrings = new JMenuItem("Extract strings from selection");
+                extractSelStrings.addActionListener(e -> showExtractStrings(selectedBytes, getParentWindow(event)));
+                dumpMenu.add(extractSelStrings);
             }
         }
 
@@ -112,6 +117,13 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 JMenuItem diffSelected = new JMenuItem("Binary diff (compare 2 selected)");
                 diffSelected.addActionListener(e -> showBinaryDiff(selected.get(0), selected.get(1), event));
                 dumpMenu.add(diffSelected);
+                JMenuItem sendToComparer2 = new JMenuItem("Send to Comparer (2 selected)");
+                sendToComparer2.addActionListener(e -> {
+                    byte[] a = selected.get(0).hasResponse() ? selected.get(0).response().body().getBytes() : selected.get(0).request().body().getBytes();
+                    byte[] b = selected.get(1).hasResponse() ? selected.get(1).response().body().getBytes() : selected.get(1).request().body().getBytes();
+                    montoyaApi.comparer().sendToComparer(ByteArray.byteArray(a), ByteArray.byteArray(b));
+                });
+                dumpMenu.add(sendToComparer2);
             }
         }
 
@@ -158,6 +170,9 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 JMenuItem dumpSelection = new JMenuItem("Dump selection (" + selectedBytes.length + " bytes)");
                 dumpSelection.addActionListener(e -> dumpBody(selectedBytes, "application/octet-stream", selName, e, false));
                 dumpMenu.add(dumpSelection);
+                JMenuItem extractSelStrings = new JMenuItem("Extract strings from selection");
+                extractSelStrings.addActionListener(e -> showExtractStrings(selectedBytes, getParentWindow(event)));
+                dumpMenu.add(extractSelStrings);
             }
         }
 
@@ -171,6 +186,13 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 JMenuItem diffSelected = new JMenuItem("Binary diff (compare 2 selected)");
                 diffSelected.addActionListener(e -> showBinaryDiffWebSocket(selected.get(0), selected.get(1), event));
                 dumpMenu.add(diffSelected);
+                JMenuItem sendToComparer2 = new JMenuItem("Send to Comparer (2 selected)");
+                sendToComparer2.addActionListener(e -> {
+                    byte[] a = selected.get(0).payload().getBytes();
+                    byte[] b = selected.get(1).payload().getBytes();
+                    montoyaApi.comparer().sendToComparer(ByteArray.byteArray(a), ByteArray.byteArray(b));
+                });
+                dumpMenu.add(sendToComparer2);
             }
         }
 
@@ -196,15 +218,38 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         dumpPayload.addActionListener(e -> dumpBody(finalBytesToDump, "application/octet-stream", finalSuggestedName, parent, false));
         menu.add(dumpPayload);
 
+        JMenuItem dumpToTempItem = new JMenuItem("Dump to temp");
+        dumpToTempItem.addActionListener(e -> dumpToTemp(finalBytesToDump, finalSuggestedName, parent));
+        menu.add(dumpToTempItem);
+
         JMenu copyMenu = new JMenu("Copy to clipboard");
         JMenuItem copyBase64 = new JMenuItem("Copy as base64");
         copyBase64.addActionListener(e -> copyToClipboard(finalBytesToDump, "base64"));
         JMenuItem copyHex = new JMenuItem("Copy as hex");
         copyHex.addActionListener(e -> copyToClipboard(finalBytesToDump, "hex"));
+        JMenuItem copyMd5 = new JMenuItem("Copy MD5");
+        copyMd5.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.md5Hex(finalBytesToDump), "MD5"));
+        JMenuItem copySha256 = new JMenuItem("Copy SHA-256");
+        copySha256.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha256Hex(finalBytesToDump), "SHA-256"));
         copyMenu.add(copyBase64);
         copyMenu.add(copyHex);
+        copyMenu.add(copyMd5);
+        copyMenu.add(copySha256);
         montoyaApi.userInterface().applyThemeToComponent(copyMenu);
         menu.add(copyMenu);
+
+        menu.addSeparator();
+        JMenuItem extractStrings = new JMenuItem("Extract strings");
+        extractStrings.addActionListener(e -> showExtractStrings(finalBytesToDump, getParentWindow(event)));
+        menu.add(extractStrings);
+
+        JMenuItem sendToComparer = new JMenuItem("Send to Comparer");
+        sendToComparer.addActionListener(e -> montoyaApi.comparer().sendToComparer(ByteArray.byteArray(finalBytesToDump)));
+        menu.add(sendToComparer);
+
+        JMenuItem sendToDecoder = new JMenuItem("Send to Decoder");
+        sendToDecoder.addActionListener(e -> montoyaApi.decoder().sendToDecoder(ByteArray.byteArray(finalBytesToDump)));
+        menu.add(sendToDecoder);
 
         byte[] decodedBase64 = DumpBinaryUtils.tryDecodeBase64(rawBytes);
         if (decodedBase64 != null && decodedBase64.length > 0) {
@@ -215,6 +260,24 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             menu.add(dumpDecoded);
         }
 
+        byte[] decodedUrlSafe = DumpBinaryUtils.tryDecodeBase64UrlSafe(rawBytes);
+        if (decodedUrlSafe != null && decodedUrlSafe.length > 0 && (decodedBase64 == null || !java.util.Arrays.equals(decodedUrlSafe, decodedBase64))) {
+            String b64uExt = DumpBinaryUtils.detectExtensionFromMagic(decodedUrlSafe);
+            String b64uName = suggestedName.replace("." + ext, "-decoded-urlsafe." + b64uExt);
+            JMenuItem dumpUrlSafe = new JMenuItem("Dump decoded URL-safe base64");
+            dumpUrlSafe.addActionListener(e -> dumpBody(decodedUrlSafe, "application/octet-stream", b64uName, parent, false));
+            menu.add(dumpUrlSafe);
+        }
+
+        byte[] decodedHex = DumpBinaryUtils.tryDecodeHex(rawBytes);
+        if (decodedHex != null && decodedHex.length > 0) {
+            String hexExt = DumpBinaryUtils.detectExtensionFromMagic(decodedHex);
+            String hexName = suggestedName.replace("." + ext, "-decoded-hex." + hexExt);
+            JMenuItem dumpHex = new JMenuItem("Dump decoded hex");
+            dumpHex.addActionListener(e -> dumpBody(decodedHex, "application/octet-stream", hexName, parent, false));
+            menu.add(dumpHex);
+        }
+
         byte[] chainedDecoded = DumpBinaryUtils.tryChainedDecode(rawBytes);
         if (chainedDecoded != null && chainedDecoded.length > 0 && !java.util.Arrays.equals(chainedDecoded, rawBytes)) {
             String chainExt = DumpBinaryUtils.detectExtensionFromMagic(chainedDecoded);
@@ -222,6 +285,14 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             JMenuItem dumpChained = new JMenuItem("Dump chained decode (base64/gzip)");
             dumpChained.addActionListener(e -> dumpBody(chainedDecoded, "application/octet-stream", chainName, parent, false));
             menu.add(dumpChained);
+        }
+        byte[] autoDecoded = tryAutoDecodeContentEncoding(rawBytes);
+        if (autoDecoded != null && autoDecoded.length > 0 && !java.util.Arrays.equals(autoDecoded, rawBytes)) {
+            String autoExt = DumpBinaryUtils.detectExtensionFromMagic(autoDecoded);
+            String autoName = suggestedName.replace("." + ext, "-autodecoded." + autoExt);
+            JMenuItem dumpAuto = new JMenuItem("Dump auto-decoded");
+            dumpAuto.addActionListener(e -> dumpBody(autoDecoded, "application/octet-stream", autoName, parent, false));
+            menu.add(dumpAuto);
         }
 
         String pretty = DumpBinaryUtils.tryPrettyPrint("application/json", bytesToDump);
@@ -245,6 +316,13 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             JMenuItem dumpCbor = new JMenuItem("Dump CBOR as JSON");
             dumpCbor.addActionListener(e -> dumpBody(cborJson, "application/json", cbName, parent, false));
             menu.add(dumpCbor);
+        }
+        byte[] protobufJson = tryDecodeProtobuf(bytesToDump);
+        if (protobufJson != null) {
+            String pbName = suggestedName.replace("." + ext, "-protobuf.json");
+            JMenuItem dumpProtobuf = new JMenuItem("Dump protobuf as JSON");
+            dumpProtobuf.addActionListener(e -> dumpBody(protobufJson, "application/json", pbName, parent, false));
+            menu.add(dumpProtobuf);
         }
     }
 
@@ -331,36 +409,16 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         String ext = DumpBinaryUtils.extensionForMime(contentType);
         byte[] rawBytes = body.getBytes();
 
-        // Check for content encoding (response only typically)
+        // Check for content encoding (response only typically); supports multiple encodings (e.g. gzip, br)
         String contentEncoding = getContentEncoding(pair, label);
         byte[] bytesToDump = rawBytes;
-        if ("gzip".equalsIgnoreCase(contentEncoding) && rawBytes.length >= 2 && (rawBytes[0] & 0xFF) == 0x1F && (rawBytes[1] & 0xFF) == 0x8B) {
+        List<String> encodings = getContentEncodingList(contentEncoding);
+        if (!encodings.isEmpty() && rawBytes.length > 0) {
             try {
-                bytesToDump = decompressGzip(rawBytes);
+                bytesToDump = applyContentEncoding(rawBytes, encodings);
                 ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
             } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress gzip - " + ex.getMessage());
-            }
-        } else if ("deflate".equalsIgnoreCase(contentEncoding) && rawBytes.length > 0) {
-            try {
-                bytesToDump = decompressDeflate(rawBytes);
-                ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
-            } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress deflate - " + ex.getMessage());
-            }
-        } else if ("br".equalsIgnoreCase(contentEncoding) && rawBytes.length > 0) {
-            try {
-                bytesToDump = decompressBrotli(rawBytes);
-                ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
-            } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress brotli - " + ex.getMessage());
-            }
-        } else if ("zstd".equalsIgnoreCase(contentEncoding) && rawBytes.length > 0) {
-            try {
-                bytesToDump = decompressZstd(rawBytes);
-                ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
-            } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress zstd - " + ex.getMessage());
+                montoyaApi.logging().logToError("Dump Binary: Failed to decompress " + contentEncoding + " - " + ex.getMessage());
             }
         } else if ("application/octet-stream".equals(contentType) || contentType == null) {
             ext = DumpBinaryUtils.detectExtensionFromMagic(rawBytes);
@@ -376,6 +434,10 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         JMenuItem dumpBodyItem = new JMenuItem("Dump " + label + " body");
         dumpBodyItem.addActionListener(e -> dumpBody(finalBytesToDump, finalContentType, finalSuggestedName, e, false));
 
+        JMenuItem dumpToTempItem = new JMenuItem("Dump to temp");
+        dumpToTempItem.addActionListener(e -> dumpToTemp(finalBytesToDump, finalSuggestedName, getParentWindow(event)));
+        menu.add(dumpToTempItem);
+
         JMenuItem dumpFull = new JMenuItem("Dump full " + label + " message");
         byte[] fullMessage = "request".equals(label) ? pair.request().toByteArray().getBytes() : pair.response().toByteArray().getBytes();
         String fullSuggestedName = suggestedName.replace("." + ext, "-raw.txt");
@@ -389,10 +451,29 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         copyBase64.addActionListener(e -> copyToClipboard(finalBytesToDump, "base64"));
         JMenuItem copyHex = new JMenuItem("Copy as hex");
         copyHex.addActionListener(e -> copyToClipboard(finalBytesToDump, "hex"));
+        JMenuItem copyMd5 = new JMenuItem("Copy MD5");
+        copyMd5.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.md5Hex(finalBytesToDump), "MD5"));
+        JMenuItem copySha256 = new JMenuItem("Copy SHA-256");
+        copySha256.addActionListener(e -> copyTextToClipboard(DumpBinaryUtils.sha256Hex(finalBytesToDump), "SHA-256"));
         copyMenu.add(copyBase64);
         copyMenu.add(copyHex);
+        copyMenu.add(copyMd5);
+        copyMenu.add(copySha256);
         montoyaApi.userInterface().applyThemeToComponent(copyMenu);
         menu.add(copyMenu);
+
+        menu.addSeparator();
+        JMenuItem extractStrings = new JMenuItem("Extract strings");
+        extractStrings.addActionListener(e -> showExtractStrings(finalBytesToDump, getParentWindow(event)));
+        menu.add(extractStrings);
+
+        JMenuItem sendToComparer = new JMenuItem("Send to Comparer");
+        sendToComparer.addActionListener(e -> montoyaApi.comparer().sendToComparer(ByteArray.byteArray(finalBytesToDump)));
+        menu.add(sendToComparer);
+
+        JMenuItem sendToDecoder = new JMenuItem("Send to Decoder");
+        sendToDecoder.addActionListener(e -> montoyaApi.decoder().sendToDecoder(ByteArray.byteArray(finalBytesToDump)));
+        menu.add(sendToDecoder);
 
         // Base64 decode option (when body decodes successfully)
         byte[] decodedBase64 = DumpBinaryUtils.tryDecodeBase64(rawBytes);
@@ -404,6 +485,26 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             menu.add(dumpDecoded);
         }
 
+        // URL-safe Base64 decode (when different from standard)
+        byte[] decodedUrlSafe = DumpBinaryUtils.tryDecodeBase64UrlSafe(rawBytes);
+        if (decodedUrlSafe != null && decodedUrlSafe.length > 0 && (decodedBase64 == null || !java.util.Arrays.equals(decodedUrlSafe, decodedBase64))) {
+            String b64uExt = DumpBinaryUtils.detectExtensionFromMagic(decodedUrlSafe);
+            String b64uName = suggestedName.replace("." + ext, "-decoded-urlsafe." + b64uExt);
+            JMenuItem dumpUrlSafe = new JMenuItem("Dump decoded URL-safe base64");
+            dumpUrlSafe.addActionListener(e -> dumpBody(decodedUrlSafe, "application/octet-stream", b64uName, e, false));
+            menu.add(dumpUrlSafe);
+        }
+
+        // Hex string decode
+        byte[] decodedHex = DumpBinaryUtils.tryDecodeHex(rawBytes);
+        if (decodedHex != null && decodedHex.length > 0) {
+            String hexExt = DumpBinaryUtils.detectExtensionFromMagic(decodedHex);
+            String hexName = suggestedName.replace("." + ext, "-decoded-hex." + hexExt);
+            JMenuItem dumpHex = new JMenuItem("Dump decoded hex");
+            dumpHex.addActionListener(e -> dumpBody(decodedHex, "application/octet-stream", hexName, e, false));
+            menu.add(dumpHex);
+        }
+
         // Chained decode (base64->gzip or gzip->base64) - only when not already decoded by Content-Encoding
         if (bytesToDump == rawBytes) {
             byte[] chainedDecoded = DumpBinaryUtils.tryChainedDecode(rawBytes);
@@ -413,6 +514,14 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                 JMenuItem dumpChained = new JMenuItem("Dump chained decode (base64/gzip)");
                 dumpChained.addActionListener(e -> dumpBody(chainedDecoded, "application/octet-stream", chainName, e, false));
                 menu.add(dumpChained);
+            }
+            byte[] autoDecoded = tryAutoDecodeContentEncoding(rawBytes);
+            if (autoDecoded != null && autoDecoded.length > 0 && !java.util.Arrays.equals(autoDecoded, rawBytes)) {
+                String autoExt = DumpBinaryUtils.detectExtensionFromMagic(autoDecoded);
+                String autoName = suggestedName.replace("." + ext, "-autodecoded." + autoExt);
+                JMenuItem dumpAuto = new JMenuItem("Dump auto-decoded");
+                dumpAuto.addActionListener(e -> dumpBody(autoDecoded, "application/octet-stream", autoName, e, false));
+                menu.add(dumpAuto);
             }
         }
 
@@ -439,6 +548,14 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             JMenuItem dumpCbor = new JMenuItem("Dump CBOR as JSON");
             dumpCbor.addActionListener(e -> dumpBody(cborJson, "application/json", cbName, e, false));
             menu.add(dumpCbor);
+        }
+
+        byte[] protobufJson = tryDecodeProtobuf(bytesToDump);
+        if (protobufJson != null) {
+            String pbName = suggestedName.replace("." + ext, "-protobuf.json");
+            JMenuItem dumpProtobuf = new JMenuItem("Dump protobuf as JSON");
+            dumpProtobuf.addActionListener(e -> dumpBody(protobufJson, "application/json", pbName, e, false));
+            menu.add(dumpProtobuf);
         }
 
         // Multipart extraction when applicable
@@ -536,6 +653,65 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         if ("response".equals(label) && pair.hasResponse()) {
             String ce = pair.response().headerValue("Content-Encoding");
             return ce != null ? ce.trim() : null;
+        }
+        return null;
+    }
+
+    /** Parse Content-Encoding header and return encodings in decompression order (reverse of application order). */
+    private List<String> getContentEncodingList(String contentEncoding) {
+        if (contentEncoding == null || contentEncoding.isBlank()) return List.of();
+        List<String> encodings = new ArrayList<>();
+        for (String part : contentEncoding.split(",")) {
+            String enc = part.trim();
+            if (!enc.isEmpty()) encodings.add(enc);
+        }
+        java.util.Collections.reverse(encodings);
+        return encodings;
+    }
+
+    private byte[] applyContentEncoding(byte[] data, List<String> encodings) throws IOException {
+        byte[] current = data;
+        for (String enc : encodings) {
+            if ("gzip".equalsIgnoreCase(enc)) {
+                current = decompressGzip(current);
+            } else if ("deflate".equalsIgnoreCase(enc)) {
+                current = decompressDeflate(current);
+            } else if ("br".equalsIgnoreCase(enc)) {
+                current = decompressBrotli(current);
+            } else if ("zstd".equalsIgnoreCase(enc)) {
+                current = decompressZstd(current);
+            } else if ("lz4".equalsIgnoreCase(enc)) {
+                current = decompressLz4(current);
+            } else if ("snappy".equalsIgnoreCase(enc) || "x-snappy".equalsIgnoreCase(enc)) {
+                current = decompressSnappy(current);
+            } else {
+                throw new IOException("Unknown Content-Encoding: " + enc);
+            }
+        }
+        return current;
+    }
+
+    private byte[] tryAutoDecodeContentEncoding(byte[] raw) {
+        if (raw == null || raw.length == 0) return null;
+        // Try each format (by magic when possible, else try anyway)
+        if (raw.length >= 2 && (raw[0] & 0xFF) == 0x1F && (raw[1] & 0xFF) == 0x8B) {
+            try { return decompressGzip(raw); } catch (Exception ignored) {}
+        }
+        if (raw.length > 0) {
+            try { return decompressDeflate(raw); } catch (Exception ignored) {}
+        }
+        if (raw.length > 0) {
+            try { return decompressBrotli(raw); } catch (Exception ignored) {}
+        }
+        if (raw.length >= 4) {
+            try { return decompressZstd(raw); } catch (Exception ignored) {}
+        }
+        if (raw.length >= 4 && (raw[0] & 0xFF) == 0x04 && (raw[1] & 0xFF) == 0x22
+                && (raw[2] & 0xFF) == 0x4D && (raw[3] & 0xFF) == 0x18) {
+            try { return decompressLz4(raw); } catch (Exception ignored) {}
+        }
+        if (raw.length > 0) {
+            try { return decompressSnappy(raw); } catch (Exception ignored) {}
         }
         return null;
     }
@@ -692,6 +868,26 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         return result;
     }
 
+    private byte[] decompressLz4(byte[] compressed) throws IOException {
+        if (compressed.length < 4) throw new IOException("LZ4 data too short");
+        // LZ4 frame magic: 0x04 0x22 0x4D 0x18
+        if ((compressed[0] & 0xFF) == 0x04 && (compressed[1] & 0xFF) == 0x22
+                && (compressed[2] & 0xFF) == 0x4D && (compressed[3] & 0xFF) == 0x18) {
+            try (LZ4FrameInputStream lis = new LZ4FrameInputStream(new ByteArrayInputStream(compressed));
+                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = lis.read(buf)) > 0) out.write(buf, 0, n);
+                return out.toByteArray();
+            }
+        }
+        throw new IOException("LZ4 frame magic not found");
+    }
+
+    private byte[] decompressSnappy(byte[] compressed) throws IOException {
+        return Snappy.uncompress(compressed);
+    }
+
     private byte[] tryDecodeMessagePack(byte[] bytes) {
         if (bytes == null || bytes.length < 2) return null;
         try {
@@ -717,6 +913,60 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
             return jsonOm.writeValueAsString(obj).getBytes(java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private byte[] tryDecodeProtobuf(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return null;
+        String protoPath = settings.getProtoDescriptorPath();
+        if (protoPath == null) return null;
+        try {
+            java.nio.file.Path path = java.nio.file.Paths.get(protoPath);
+            List<com.google.protobuf.Descriptors.Descriptor> descriptors = DumpBinaryProtobuf.loadDescriptorSet(path);
+            if (descriptors.isEmpty()) return null;
+            com.google.protobuf.Descriptors.Descriptor descriptor = DumpBinaryProtobuf.findMessageDescriptor(
+                    descriptors, settings.getProtoDefaultMessageType());
+            if (descriptor == null) {
+                for (com.google.protobuf.Descriptors.Descriptor d : descriptors) {
+                    String json = DumpBinaryProtobuf.decodeToJson(bytes, d);
+                    if (json != null) {
+                        return json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                }
+                return null;
+            }
+            String json = DumpBinaryProtobuf.decodeToJson(bytes, descriptor);
+            return json != null ? json.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
+        } catch (Exception e) {
+            montoyaApi.logging().logToError("Dump Binary: Protobuf decode failed - " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void showExtractStrings(byte[] bytes, Component parent) {
+        List<String> strings = DumpBinaryUtils.extractStrings(bytes);
+        StringBuilder sb = new StringBuilder();
+        sb.append("Extracted ").append(strings.size()).append(" strings (min length 4):\n\n");
+        for (String s : strings) {
+            sb.append(s).append("\n");
+        }
+        String text = sb.toString();
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(parent), "Extract Strings", java.awt.Dialog.ModalityType.MODELESS);
+        JTextArea area = new JTextArea(text, 20, 60);
+        area.setEditable(false);
+        area.setFont(new java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12));
+        JScrollPane scroll = new JScrollPane(area);
+        JPanel buttons = new JPanel();
+        JButton copyBtn = new JButton("Copy all");
+        copyBtn.addActionListener(e -> copyTextToClipboard(text, "extracted strings"));
+        buttons.add(copyBtn);
+        montoyaApi.userInterface().applyThemeToComponent(dialog);
+        montoyaApi.userInterface().applyThemeToComponent(area);
+        montoyaApi.userInterface().applyThemeToComponent(copyBtn);
+        dialog.add(scroll, BorderLayout.CENTER);
+        dialog.add(buttons, BorderLayout.SOUTH);
+        dialog.pack();
+        dialog.setLocationRelativeTo(parent);
+        dialog.setVisible(true);
     }
 
     private void showBinaryDiff(HttpRequestResponse a, HttpRequestResponse b, ContextMenuEvent event) {
@@ -782,6 +1032,16 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         }
     }
 
+    private void copyTextToClipboard(String text, String label) {
+        if (text == null || text.isBlank()) return;
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+            montoyaApi.logging().logToOutput("Dump Binary: Copied " + label + " to clipboard");
+        } catch (Exception ex) {
+            montoyaApi.logging().logToError("Dump Binary: Failed to copy - " + ex.getMessage());
+        }
+    }
+
     private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) {
@@ -804,33 +1064,13 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
         byte[] bytesToDump = rawBytes;
 
         String contentEncoding = getContentEncoding(pair, label);
-        if ("gzip".equalsIgnoreCase(contentEncoding) && rawBytes.length >= 2 && (rawBytes[0] & 0xFF) == 0x1F && (rawBytes[1] & 0xFF) == 0x8B) {
+        List<String> encodings = getContentEncodingList(contentEncoding);
+        if (!encodings.isEmpty() && rawBytes.length > 0) {
             try {
-                bytesToDump = decompressGzip(rawBytes);
+                bytesToDump = applyContentEncoding(rawBytes, encodings);
                 ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
             } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress gzip - " + ex.getMessage());
-            }
-        } else if ("deflate".equalsIgnoreCase(contentEncoding) && rawBytes.length > 0) {
-            try {
-                bytesToDump = decompressDeflate(rawBytes);
-                ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
-            } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress deflate - " + ex.getMessage());
-            }
-        } else if ("br".equalsIgnoreCase(contentEncoding) && rawBytes.length > 0) {
-            try {
-                bytesToDump = decompressBrotli(rawBytes);
-                ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
-            } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress brotli - " + ex.getMessage());
-            }
-        } else if ("zstd".equalsIgnoreCase(contentEncoding) && rawBytes.length > 0) {
-            try {
-                bytesToDump = decompressZstd(rawBytes);
-                ext = DumpBinaryUtils.detectExtensionFromMagic(bytesToDump);
-            } catch (IOException ex) {
-                montoyaApi.logging().logToError("Dump Binary: Failed to decompress zstd - " + ex.getMessage());
+                montoyaApi.logging().logToError("Dump Binary: Failed to decompress " + contentEncoding + " - " + ex.getMessage());
             }
         } else if ("application/octet-stream".equals(contentType) || contentType == null) {
             ext = DumpBinaryUtils.detectExtensionFromMagic(rawBytes);
@@ -906,6 +1146,49 @@ public class DumpBinaryContextMenu implements ContextMenuItemsProvider {
                     if (settings.isShowSuccessToast()) {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialogParent, "Saved " + bytesLength + " bytes to\n" + pathFinal, "Dump Binary", JOptionPane.INFORMATION_MESSAGE));
                     }
+                    if (settings.isOpenAfterSave()) {
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                java.awt.Desktop.getDesktop().open(pathFinal.toFile());
+                            } catch (IOException ex) {
+                                montoyaApi.logging().logToError("Dump Binary: Failed to open file - " + ex.getMessage());
+                            }
+                        });
+                    }
+                } catch (Exception ex) {
+                    montoyaApi.logging().logToError("Dump Binary: Failed to save - " + ex.getMessage());
+                    final String errorMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialogParent, "Failed to save: " + errorMsg, "Dump Binary", JOptionPane.ERROR_MESSAGE));
+                }
+            }
+        }.execute();
+    }
+
+    private void dumpToTemp(byte[] bytes, String suggestedName, Component parent) {
+        String ext = suggestedName.contains(".") ? suggestedName.substring(suggestedName.lastIndexOf('.') + 1) : "bin";
+        String baseName = suggestedName.contains(".") ? suggestedName.substring(0, suggestedName.lastIndexOf('.')) : suggestedName;
+        baseName = sanitizeFilename(baseName);
+        if (baseName.length() > 40) baseName = baseName.substring(0, 40);
+        String tempDir = System.getProperty("java.io.tmpdir");
+        java.io.File dir = new java.io.File(tempDir, "dump-binary");
+        if (!dir.exists()) dir.mkdirs();
+        java.io.File file = resolveUniqueFile(dir, baseName + "-" + System.currentTimeMillis(), ext);
+        java.nio.file.Path path = file.toPath();
+        final Component dialogParent = parent;
+        final int bytesLength = bytes.length;
+        final java.nio.file.Path pathFinal = path;
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                Files.write(pathFinal, bytes);
+                return null;
+            }
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    montoyaApi.logging().logToOutput("Dump Binary: Saved " + bytesLength + " bytes to " + pathFinal);
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialogParent, "Saved " + bytesLength + " bytes to\n" + pathFinal, "Dump Binary", JOptionPane.INFORMATION_MESSAGE));
                     if (settings.isOpenAfterSave()) {
                         SwingUtilities.invokeLater(() -> {
                             try {

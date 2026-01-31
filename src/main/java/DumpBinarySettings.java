@@ -14,6 +14,8 @@ public class DumpBinarySettings {
     public static final String CONFIRM_OVERWRITE = "confirmOverwrite";
     public static final String OPEN_AFTER_SAVE = "openAfterSave";
     public static final String CUSTOM_MAGIC_BYTES = "customMagicBytes";
+    public static final String PROTO_DESCRIPTOR_PATH = "protoDescriptorPath";
+    public static final String PROTO_DEFAULT_MESSAGE_TYPE = "protoDefaultMessageType";
 
     private final SettingsPanelWithData panel;
 
@@ -29,7 +31,9 @@ public class DumpBinarySettings {
                         booleanSetting("Show success notification after save", SHOW_SUCCESS_TOAST, true),
                         booleanSetting("Confirm before overwriting existing file", CONFIRM_OVERWRITE, true),
                         booleanSetting("Open saved file in default application", OPEN_AFTER_SAVE, false),
-                        stringSetting("Custom magic bytes (hex:ext per line, e.g. 89 50 4E 47:png)", CUSTOM_MAGIC_BYTES, "")
+                        stringSetting("Custom magic bytes (hex:ext per line, e.g. 89 50 4E 47:png)", CUSTOM_MAGIC_BYTES, ""),
+                        stringSetting("Protobuf descriptor file (.desc, from protoc --descriptor_set_out)", PROTO_DESCRIPTOR_PATH, ""),
+                        stringSetting("Protobuf default message type (e.g. MyMessage or package.MyMessage, empty=first)", PROTO_DEFAULT_MESSAGE_TYPE, "")
                 )
                 .build();
     }
@@ -62,5 +66,15 @@ public class DumpBinarySettings {
     public String getCustomMagicBytes() {
         String s = panel.getString(CUSTOM_MAGIC_BYTES);
         return (s != null && !s.isBlank()) ? s : null;
+    }
+
+    public String getProtoDescriptorPath() {
+        String s = panel.getString(PROTO_DESCRIPTOR_PATH);
+        return (s != null && !s.isBlank()) ? s.trim() : null;
+    }
+
+    public String getProtoDefaultMessageType() {
+        String s = panel.getString(PROTO_DEFAULT_MESSAGE_TYPE);
+        return (s != null && !s.isBlank()) ? s.trim() : null;
     }
 }
