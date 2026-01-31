@@ -28,10 +28,15 @@ jobs:
       - name: Build
         run: ./gradlew jar --no-daemon
 
+      - name: Get version from Gradle
+        id: version
+        run: echo "version=$(./gradlew printVersion -q 2>/dev/null | tail -1)" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/libs/dump-binary.jar
+          files: build/libs/dump-binary-${{ steps.version.outputs.version }}.jar
+          name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
